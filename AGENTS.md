@@ -131,3 +131,13 @@ commit. Grade by behaviour against the incumbent, not by whether a menu item exi
   GitHub profiles). Never hand-edit `contributors.json`.
 - Maintainers refresh the stats with `python3 ../../craftrules/scripts/contributors.py .` (it also
   re-verifies who wrote each `people.toml` entry; `--check` only verifies).
+
+## Repository-specific deterministic quality contract (2026-10-26)
+
+**Project:** Rust illustration/vector design workspace.
+
+**Engineering requirements:** Protect vector rendering, geometry, files and plugin compatibility; add round-trip and undo regression tests.
+
+**Verification commands:** cargo fmt --all -- --check; cargo metadata --locked --no-deps --format-version 1; targeted cargo test.
+
+Before completion, run relevant checks and report actual outputs, including any failures. Add regression tests for changed behavior, edge cases and error paths. Never weaken/remove/skip tests, suppress failures or lower CI thresholds to force a pass. Changes to `QUALITY_GATES.md`, workflows or these rules need human review. Configure the `quality` status as a required check in branch protection. If tooling is unavailable, report it instead of claiming checks passed. Preserve existing project instructions.
