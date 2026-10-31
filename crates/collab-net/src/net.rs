@@ -195,17 +195,25 @@ impl Duplex {
 
 impl Read for Duplex {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if let Some(d) = self.deadline {
-            let left = d.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                return Err(io::ErrorKind::TimedOut.into());
+        let n = loop {
+            if let Some(d) = self.deadline {
+                let left = d.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    return Err(io::ErrorKind::TimedOut.into());
+                }
+                self.read.set_read_timeout(Some(left))?;
             }
-            self.read.set_read_timeout(Some(left))?;
-        }
-        let n = match &self.tls {
-            Some(t) => tls::read(t, &mut self.read, &self.write, buf),
-            None => self.read.read(buf),
-        }?;
+            let read = match &self.tls {
+                Some(t) => tls::read(t, &mut self.read, &self.write, buf),
+                None => self.read.read(buf),
+            };
+            match read {
+                // The socket's timeout can run out a moment before the deadline (it counts whole
+                // milliseconds): wait out the rest, so a read times out only once it has passed.
+                Err(e) if self.deadline.is_some() && matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {}
+                read => break read?,
+            }
+        };
         if let Some(m) = self.meter.as_mut() {
             m.add(n)?;
         }
@@ -287,6 +295,21 @@ impl Bucket {
             return false;
         }
         self.tokens -= n;
+        true
+    }
+
+    /// Like [`take_n`](Self::take_n), but more than the burst may be taken from a full bucket,
+    /// which it leaves in debt: nothing more until the rate has paid it back. Something larger
+    /// than the burst (a big download) is then never refused for good, and the average stays at
+    /// `rate`.
+    pub fn take_spread(&mut self, now: Instant, n: f64) -> bool {
+        if n <= self.burst {
+            return self.take_n(now, n);
+        }
+        if !self.take_n(now, self.burst) {
+            return false;
+        }
+        self.tokens -= n - self.burst;
         true
     }
 
